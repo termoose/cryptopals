@@ -1,6 +1,8 @@
 extern crate base64;
 use hex::{FromHex, ToHex, FromHexError};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 pub fn hex_to_base64(s: &str) -> Result<String, FromHexError> {
     let hex_bytes = Vec::from_hex(s)?;
@@ -12,27 +14,44 @@ pub fn fixed_xor(a: &str, b: &str) -> Result<String, FromHexError> {
 
     let xor: Vec<u8> = a_bytes.iter()
         .zip(b_bytes.iter())
-        .map(|(a,b)| a ^ b)
+        .map(|(a, b)| a ^ b)
         .collect();
     
     Ok(xor.encode_hex::<String>())
 }
 
-pub fn crack(s: &str) -> String {
+pub fn crack(s: &str) -> (i32, String) {
     let test: HashMap<i32, String> = (0..128).map(|c| {
         let cs_hex = vec![c as u8; s.len()].encode_hex::<String>();
         let result = fixed_xor(s, &cs_hex).unwrap();
-        let message = String::from_utf8(Vec::from_hex(result).unwrap()).unwrap();
-        
-        (language_score(&message), message)
+        let message = String::from_utf8(Vec::from_hex(result).unwrap());
+
+        match message {
+            Ok(msg) => (language_score(&msg), msg),
+            Err(_error) => (-1, "".to_string())
+        }
     }).collect();
 
     // Clear text is the one with the highest language score
-    let clear_text = &test[test.keys().max().unwrap()];
-    return clear_text.to_string();
+    let score = test.keys().max().unwrap();
+    let clear_text = &test[score];
+    return (*score, clear_text.to_string())
 }
 
-pub fn language_score(s: &str) -> i32 {
+pub fn crack_file(path: &str) -> Result<String, std::io::Error> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let cracked_lines: HashMap<i32, String> = reader
+        .lines()
+        .map(|l| crack(&l.unwrap()))
+        .collect();
+
+    let clear = &cracked_lines[cracked_lines.keys().max().unwrap()];
+    return Ok(clear.to_string())
+}
+
+fn language_score(s: &str) -> i32 {
     let caps_range = 'A'..'Z';
     let small_range = 'a'..'z';
 
@@ -68,8 +87,14 @@ mod tests {
 
     #[test]
     fn challenge3() {
-        assert_eq!(crack("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736"),
-                   "Cooking MC's like a pound of bacon");
+        let (_, solution) = crack("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736");
+        assert_eq!(solution, "Cooking MC's like a pound of bacon");
+    }
+
+    #[test]
+    fn challenge4() {
+        let solution = crack_file("4.txt").unwrap();
+        assert_eq!(solution, "Now that the party is jumping\n");
     }
 
     #[test]
